@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<!--
+ * knb_cad - LAPD-style MDC + dispatch system for FiveM
+ * Copyright (C) 2026 kenobiali
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program (see the LICENSE file). If not, see
+ * <https://www.gnu.org/licenses/>.
+ *
+ * Parts of the alert detection and dispatch logic are adapted from
+ * Project Sloth ps-dispatch (GPL-3.0): https://github.com/Project-Sloth/ps-dispatch
+-->
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- Dispatch notification cards (also visible while the MDC is closed) -->
+<div id="alerts"></div>
+
+<div id="app" class="hidden">
+ <div class="mdc">
+  <!-- Top bar -->
+  <header class="hdr">
+   <div class="seal" id="seal">LSPD</div>
+   <div class="org"><b id="orgName">LOS SANTOS POLICE DEPARTMENT</b><small>MOBILE DIGITAL COMPUTER</small></div>
+   <button class="unit" id="btnUnit" title="Change callsign" data-i18n-attr="title:html.t_callsign"><span id="unitCs">NEW UNIT</span><small id="unitCrew">—</small></button>
+   <button class="st" id="btnStatus" title="Select status" data-i18n-attr="title:html.t_status"><i></i><span id="stLabel">AVAILABLE</span><span class="t" id="stTime">00:00</span></button>
+   <button class="cur" id="btnMyCall" title="Open my active incident" data-i18n-attr="title:html.t_mycall"><small data-i18n="html.active_incident">ACTIVE INCIDENT</small><b id="curInc">—</b></button>
+   <div class="sp"></div>
+   <button class="ib t" id="btnMsgs" title="Messages" data-i18n-attr="title:html.t_messages"><span data-i18n="html.msg_short">MSG</span><em id="msgBadge" class="hidden">0</em></button>
+   <button class="ib t" id="btnTheme" title="Night / day theme" data-i18n-attr="title:html.t_theme">NIGHT</button>
+   <div class="clk"><b id="clk">--:--:--</b><small id="clkDate">—</small></div>
+   <button class="ib x" id="btnClose" title="Close (ESC)" data-i18n-attr="title:html.t_close">×</button>
+  </header>
+
+  <!-- Tabs -->
+  <nav class="tabs" id="tabs">
+   <button class="tab" data-go="dash"><span class="ki">1</span><span data-i18n="html.tab_incidents">INCIDENTS</span> <em class="r hidden" id="tbCalls">0</em></button>
+   <button class="tab" data-go="map"><span class="ki">2</span><span data-i18n="html.tab_map">MAP</span></button>
+   <button class="tab" data-go="lookup"><span class="ki">3</span><span data-i18n="html.tab_lookup">LOOKUP</span></button>
+   <button class="tab" data-go="records"><span class="ki">4</span><span data-i18n="html.tab_reports">REPORTS</span> <em class="hidden" id="recBadge">0</em></button>
+   <button class="tab" data-go="wanted"><span class="ki">5</span><span data-i18n="html.tab_wanted">WANTED / BOLO</span> <em class="r hidden" id="tbBolo">0</em></button>
+   <button class="tab" data-go="messages"><span class="ki">6</span><span data-i18n="html.tab_messages">MESSAGES</span> <em class="r hidden" id="tbMsg">0</em></button>
+   <button class="tab" data-go="units"><span class="ki">7</span><span data-i18n="html.tab_units">UNITS</span></button>
+   <button class="tab" data-go="history"><span class="ki">8</span><span data-i18n="html.tab_history">HISTORY</span></button>
+   <div class="qq" id="qqWrap"><div class="box"><b data-i18n="html.tab_lookup">LOOKUP</b><input id="qq" maxlength="40" placeholder="plate / full name / serial no" data-i18n-attr="placeholder:html.qq_ph"><span>ENTER</span></div></div>
+  </nav>
+
+  <!-- General broadcast strip -->
+  <div class="tick" id="tick"><b data-i18n="html.broadcast">GENERAL BROADCAST</b><span class="tm">—</span><span data-i18n="html.no_broadcast">No broadcast.</span></div>
+
+  <main class="pages">
+   <!-- INCIDENTS -->
+   <section class="page body dash" id="pg-dash">
+    <div class="pn qpn">
+     <div class="ph"><span data-i18n="html.queue">INCIDENT QUEUE</span> <span class="r" id="qCount">0 open</span></div>
+     <div class="flt" id="qFilters">
+      <button class="chip on" data-qf="all"><span data-i18n="html.f_all">All</span> <em id="qfAll">0</em></button>
+      <button class="chip" data-qf="pending"><span data-i18n="html.f_pending">Pending</span> <em id="qfPending">0</em></button>
+      <button class="chip" data-qf="mine"><span data-i18n="html.f_mine">Mine</span> <em id="qfMine">0</em></button>
+      <button class="chip r" data-qf="p3">Code 3 <em id="qfP3">0</em></button>
+     </div>
+     <div class="q" id="queue"></div>
+     <div class="oi" id="quickStart"><span class="lbl" data-i18n="html.start_own">Start your own incident</span><div class="g">
+      <button class="b" data-qs="traffic" data-i18n="html.qs_traffic">Traffic Stop</button><button class="b" data-qs="ped" data-i18n="html.qs_ped">Pedestrian Stop</button>
+      <button class="b" data-qs="sus" data-i18n="html.qs_sus">Suspicious</button><button class="b" data-qs="custom" data-i18n="html.qs_custom">Custom Call</button></div></div>
+    </div>
+    <div class="pn det" id="detail"><div class="emptyd"><b data-i18n="ui.no_incident_selected">No incident selected</b><span data-i18n="html.pick_incident">Pick an incident from the queue on the left.</span></div></div>
+    <div class="pn side3" id="dashRight">
+     <div class="ph"><span data-i18n="html.unit_status">UNIT STATUS</span> <span class="r" id="uCount">0 on duty</span></div>
+     <div class="sum" id="uSum"></div>
+     <div class="sbar" id="uBar"></div>
+     <div class="ulist" id="uList"></div>
+     <div id="hotWrap"><div class="ph bt">HOT SHEET · BOLO <span class="r" id="hotCount">0</span></div><div id="hotList"></div></div>
+     <div id="lastMsgWrap"><div class="ph bt"><span data-i18n="html.last_msgs">LATEST MESSAGES</span> <span class="r" id="lmCount"></span></div><div id="lastMsgs"></div></div>
+    </div>
+   </section>
+
+   <!-- MAP -->
+   <section class="page body mapg hidden" id="pg-map">
+    <div class="pn map" id="mapBox">
+     <svg id="mapSvg" preserveAspectRatio="xMidYMid slice"></svg>
+     <div class="ov flt" id="mapFilters"></div>
+     <div class="ov tools"><button data-mz="in">+</button><button data-mz="out">−</button><button data-mz="me" title="Center on me" data-i18n-attr="title:html.t_center_me" data-i18n="html.map_me">ME</button><button data-mz="fit" title="Whole city" data-i18n-attr="title:html.t_whole_city" data-i18n="html.map_all">ALL</button></div>
+     <div class="ov leg"><span><i style="background:var(--av)"></i><span data-i18n="html.lg_available">Available</span></span><span><i class="dm" style="background:var(--c3)"></i><span data-i18n="html.lg_c3">Code 3 incident</span></span><span><i style="background:var(--er)"></i><span data-i18n="html.lg_enroute">En route</span></span><span><i class="dm" style="background:var(--c2)"></i><span data-i18n="html.lg_c2">Code 2 incident</span></span><span><i style="background:var(--os)"></i>Code 6</span><span><i class="dm" style="background:var(--c1)"></i><span data-i18n="html.lg_c1">Code 1 incident</span></span><span><i style="background:var(--c7)"></i>Code 7</span><span><i style="background:#fff"></i><span data-i18n="html.lg_you">You</span></span></div>
+     <div class="ov cord" id="mapCord"><span id="mapCur">—</span><span class="sc"><i id="mapScale"></i><b id="mapScaleT">500 m</b></span></div>
+    </div>
+    <div class="pn" id="mapSide"></div>
+   </section>
+
+   <!-- LOOKUP -->
+   <section class="page body lookg hidden" id="pg-lookup">
+    <div class="pn">
+     <div class="ph" data-i18n="html.new_query">NEW QUERY</div>
+     <div class="qf">
+      <div class="seg" id="qSeg"><button class="on" data-qt="plate" data-i18n="q.t_plate">PLATE</button><button data-qt="person" data-i18n="q.t_person">PERSON</button><button data-qt="weapon" data-i18n="q.t_weapon">WEAPON</button></div>
+      <div id="qInputs"></div>
+      <label class="exact"><input type="checkbox" id="qExact"> <span data-i18n="html.exact">Exact match</span></label>
+      <button class="b pr go" id="qGo" data-i18n="html.run_query">RUN QUERY</button>
+      <span class="tip" data-i18n="html.tip_query">Tip: the LOOKUP box at the top recognises a plate, a full name or a serial number on its own.</span>
+     </div>
+     <div class="ph"><span data-i18n="html.query_history">QUERY HISTORY</span> <span class="r" id="qhCount">this session</span></div>
+     <div class="qh" id="qHist"></div>
+    </div>
+    <div class="pn ret" id="qRet"><div class="emptyd"><b data-i18n="html.awaiting_query">Awaiting query</b><span data-i18n="html.awaiting_hint">Look up a plate, a person or a weapon serial number.</span></div></div>
+    <div class="pn" id="qSum"><div class="ph" data-i18n="q.summary">SUMMARY · AT A GLANCE</div><div class="emptyd sm"><span data-i18n="html.summary_hint">The query result is summarised here.</span></div></div>
+   </section>
+
+   <!-- REPORTS -->
+   <section class="page body recg hidden" id="pg-records">
+    <aside class="pn side">
+     <div class="ph" data-i18n="html.new_report">NEW REPORT</div>
+     <button class="item" data-form="arrest">Arrest Report <small data-i18n="r.arrest">Arrest</small></button>
+     <button class="item" data-form="crime">Crime Report <small data-i18n="r.crime_report">Crime report</small></button>
+     <button class="item" data-form="followup">Follow-up <small data-i18n="r.follow_up_investigation">Follow-up investigation</small></button>
+     <button class="item" data-form="citation">Citation <small data-i18n="r.citation">Citation</small></button>
+     <button class="item" data-form="warrant">Arrest Warrant <small data-i18n="r.arrest_warrant">Arrest warrant</small></button>
+     <div class="ph bt" data-i18n="html.lists">LISTS</div>
+     <button class="item" data-list="mine"><span data-i18n="html.my_reports">My Reports</span> <span class="cnt hidden" id="cntReturned"></span></button>
+     <button class="item hidden" data-list="pending" id="btnPending"><span data-i18n="html.pending_approval">Pending Approval</span> <span class="cnt hidden" id="cntPending"></span></button>
+     <p class="hint" data-i18n="html.reports_tip">Tip: if you open a person's profile on the Lookup screen and create the report from there, the person's details are filled in automatically.</p>
+    </aside>
+    <div class="pn stagepn"><div class="stage"><div id="paper" class="paper"><p class="empty dark" data-i18n="r.pick_type">Pick a report type on the left.</p></div></div></div>
+   </section>
+
+   <!-- WANTED / BOLO -->
+   <section class="page body wantg hidden" id="pg-wanted">
+    <div class="pn"><div class="ph"><span data-i18n="html.active_warrants">ACTIVE WARRANTS</span> <span class="r" id="wCount">0</span><button class="mini" id="btnWantedRefresh" data-i18n="html.refresh">Refresh</button></div><div class="list" id="wWarrants"></div></div>
+    <div class="pn"><div class="ph"><span data-i18n="html.person_bolos">PERSON BOLOs</span> <span class="r" id="wpCount">0</span></div><div class="list" id="wPersons"></div></div>
+    <div class="pn"><div class="ph"><span data-i18n="html.vehicle_bolos">VEHICLE BOLOs</span> <span class="r" id="wvCount">0</span></div><div class="list" id="wVehicles"></div></div>
+   </section>
+
+   <!-- MESSAGES -->
+   <section class="page body msgg hidden" id="pg-messages">
+    <aside class="pn"><div class="ph" data-i18n="html.channels">CHANNELS</div><div class="chans" id="chans"></div></aside>
+    <div class="pn thread">
+     <div class="ph" id="thTitle">GENERAL CHANNEL</div>
+     <div class="tmsgs" id="tMsgs"></div>
+     <div class="tinput"><input id="mText" maxlength="300" placeholder="Type a message and press Enter…" data-i18n-attr="placeholder:html.msg_ph"><button class="b pr" id="mSend" data-i18n="html.send">Send</button></div>
+    </div>
+   </section>
+
+   <!-- UNITS / SHIFT -->
+   <section class="page body unitg hidden" id="pg-units">
+    <div class="pn">
+     <div class="ph"><span data-i18n="html.unit_board">UNIT BOARD</span> <span class="r" id="ubCount">—</span></div>
+     <div class="tb2"><div id="ubFilters" class="chips"></div><span class="sp"></span><input class="s" id="ubSearch" placeholder="Callsign or name…" data-i18n-attr="placeholder:html.unit_search_ph"></div>
+     <div id="ubWarn"></div>
+     <div class="scroll"><table class="ubt"><thead><tr><th style="width:80px" data-i18n="ui.th_unit">UNIT</th><th style="width:170px" data-i18n="html.th_crew">CREW</th><th style="width:96px" data-i18n="ui.th_status">STATUS</th><th style="width:66px" data-i18n="ui.th_time">TIME</th><th style="width:170px" data-i18n="html.th_incident">INCIDENT</th><th data-i18n="c.location">LOCATION</th><th style="width:80px" data-i18n="ui.th_distance">DISTANCE</th><th style="width:80px"></th></tr></thead><tbody id="ubBody"></tbody></table></div>
+    </div>
+    <div class="pn" id="shiftPn"><div class="ph" data-i18n="sh.my_shift">MY SHIFT</div><div class="emptyd sm"><span data-i18n="ui.loading">Loading…</span></div></div>
+   </section>
+
+   <!-- HISTORY -->
+   <section class="page body histg hidden" id="pg-history">
+    <div class="pn">
+     <div class="ph"><span data-i18n="html.history">HISTORY</span>
+      <span class="tabs2"><button data-htab="calls" class="on" data-i18n="html.closed_incidents">Closed Incidents</button><button data-htab="reports" data-i18n="html.reports">Reports</button></span>
+      <input id="hQ" class="barin" placeholder="Search: #number, title, address, officer…" data-i18n-attr="placeholder:html.history_ph"><button class="mini" id="hSearch" data-i18n="html.search">Search</button></div>
+     <div class="scroll"><table class="ht"><thead id="hHead"></thead><tbody id="hBody"></tbody></table></div>
+    </div>
+   </section>
+  </main>
+
+  <!-- Function keys -->
+  <footer class="fk" id="fk"></footer>
+ </div>
+
+ <div id="modal" class="hidden"></div>
+ <div id="toast" class="hidden"></div>
+</div>
+<script src="map.js"></script>
+<script src="script.js"></script>
+<script src="reports.js"></script>
+</body>
+</html>
